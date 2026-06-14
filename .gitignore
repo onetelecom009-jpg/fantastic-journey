@@ -1,0 +1,225 @@
+// প্রধান নেভিগেশন স্ক্রিন
+class HomeScreen extends StatefulWidget {
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _selectedIndex = 0;
+  final List<Widget> _screens = [
+    DashboardScreen(),
+    CustomerListScreen(),
+    StockListScreen(),
+    BillingScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        items: [
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'ড্যাশবোর্ড'),
+          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'কাস্টমার'),
+          BottomNavigationBarItem(icon: Icon(Icons.inventory), label: 'স্টক'),
+          BottomNavigationBarItem(icon: Icon(Icons.receipt_long), label: 'বিলিং'),
+        ],
+      ),
+    );
+  }
+}
+class Product {
+  String id;
+  String name;
+  double price;
+  int stockQuantity;
+
+  Product({required this.id, required this.name, required this.price, required this.stockQuantity});
+}
+void processSale(Product product, int purchasedQuantity, Customer customer) {
+  var productBox = Hive.box('products');
+  var salesBox = Hive.box('sales');
+
+  if (product.stockQuantity >= purchasedQuantity) {
+    // ১. স্টক কমানো (Update Stock)
+    product.stockQuantity -= purchasedQuantity;
+    productBox.put(product.id, product);
+
+    // ২. বিক্রির রেকর্ড রাখা (Create Sales Record)
+    var saleRecord = {
+      'customerId': customer.id,
+      'productId': product.id,
+      'quantity': purchasedQuantity,
+      'totalPrice': product.price * purchasedQuantity,
+      'date': DateTime.now().toIso8601String(),
+    };
+    salesBox.add(saleRecord);
+    
+    print("বিক্রি সফল হয়েছে এবং স্টক আপডেট করা হয়েছে।");
+  } else {
+    print("পর্যাপ্ত স্টক নেই!");
+  }
+}
+// মাসিক বিক্রির একটি সিম্পল বার চার্ট উইজেট
+import 'package:fl_chart/fl_chart.dart';
+
+Widget buildSalesChart(List<double> monthlySales) {
+  return BarChart(
+    BarChartData(
+      alignment: BarChartAlignment.spaceAround,
+      barGroups: monthlySales.asMap().entries.map((entry) {
+        return BarChartGroupData(
+          x: entry.key,
+          barRods: [BarChartRodData(toY: entry.value, color: Colors.blue)],
+        );
+      }).toList(),
+    ),
+  );
+}
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+
+Future<void> generateInvoice(Customer customer, List<Map<String, dynamic>> items, double total) async {
+  final pdf = pw.Document();
+
+  pdf.addPage(
+    pw.Page(
+      build: (pw.Context context) => pw.Column(
+        cross: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text("কাষ্টমার ইনভয়েস", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          pw.Text("ক্রেতার নাম: ${customer.name}"),
+          pw.Divider(),
+          pw.Text("পণ্যের বিবরণ:"),
+          ...items.map((item) => pw.Text("${item['name']} x ${item['quantity']} = ৳${item['price']}")),
+          pw.Divider(),
+          pw.Text("সর্বমোট: ৳$total", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+        ],
+      ),
+    ),
+  );
+
+  // সরাসরি প্রিন্ট বা প্রিভিউ দেখানোর জন্য
+  await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
+}
+import 'package:connectivity_plus/connectivity_plus.dart';
+
+void checkInternetAndSync() async {
+  var connectivityResult = await (Connectivity().checkConnectivity());
+  if (connectivityResult != ConnectivityResult.none) {
+    // ইন্টারনেট আছে, এবার ক্লাউডে ব্যাকআপ নাও
+    var localSales = Hive.box('sales').values.where((sale) => sale['isSynced'] == false);
+    
+    for (var sale in localSales) {
+      // Firebase Firestore-এ ডাটা পাঠানো
+      await FirebaseFirestore.instance.collection('sales').add(sale);
+      
+      // লোকাল ডাটাতে সিঙ্ক স্ট্যাটাস আপডেট করা
+      sale['isSynced'] = true;
+      sale.save();
+    }
+  }
+}
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ডাটাবেস এবং স্টেট ম্যানেজমেন্ট
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # চার্ট, পিডিএফ এবং কানেক্টিভিটি
+  fl_chart: ^0.66.0
+  pdf: ^3.10.7
+  printing: ^5.11.1
+  connectivity_plus: ^5.0.2
+
+  # ফায়ারবেস (ক্লাউড সিঙ্কের জন্য)
+  firebase_core: ^2.24.2
+  cloud_firestore: ^4.14.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  hive_generator: ^2.0.1
+  build_runner: ^2.4.8
+// product.dart
+class Product {
+  String id;
+  String name;
+  double price;
+  int stockQuantity;
+
+  Product({required this.id, required this.name, required this.price, required this.stockQuantity});
+}
+
+// customer.dart
+class Customer {
+  String id;
+  String name;
+  String phone;
+
+  Customer({required this.id, required this.name, required this.phone});
+}
+// screens/home_screen.dart
+import 'package:flutter/material.dart';
+
+class HomeScreen extends StatefulWidget {
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _selectedIndex = 0;
+  
+  // স্ক্রিনগুলোর লিস্ট
+  final List<Widget> _screens = [
+    DashboardScreen(),
+    CustomerListScreen(),
+    StockListScreen(),
+    BillingScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        type: BottomNavigationBarType.fixed, // ৪টি আইটেমের জন্য ফিক্সড টাইপ ভালো
+        onTap: (index) => setState(() => _selectedIndex = index),
+        items: [
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'ড্যাশবোর্ড'),
+          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'কাস্টমার'),
+          BottomNavigationBarItem(icon: Icon(Icons.inventory), label: 'স্টক'),
+          BottomNavigationBarItem(icon: Icon(Icons.receipt_long), label: 'বিলিং'),
+        ],
+      ),
+    );
+  }
+}
+
+// ডামি স্ক্রিনসমূহ 
+class DashboardScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text('ড্যাশবোর্ড')), body: Center(child: Text('এখানে চার্ট ও সেলস সামারি থাকবে')));
+}
+
+class CustomerListScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text('কাস্টমার লিস্ট')), body: Center(child: Text('কাস্টমারদের তালিকা')));
+}
+
+class StockListScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text('স্টক ম্যানেজমেন্ট')), body: Center(child: Text('পণ্যের তালিকা ও স্টক')));
+}
+
+class BillingScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text('বিলিং')), body: Center(child: Text('নতুন বিল তৈরি করুন')));
+}
